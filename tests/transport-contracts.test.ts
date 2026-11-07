@@ -20,6 +20,7 @@ import http from "node:http";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { isNodeSynced, KovanicaClient } from "../src/client";
+import { CHAIN_IDS } from "../src/chains";
 import {
   KovanicaAbortError,
   KovanicaRpcError,
@@ -29,6 +30,7 @@ import {
 } from "../src/errors";
 import { sanitizeDiagnostics } from "../src/transport";
 import { parseQuantity, toHexQuantity } from "../src/units";
+import { assertNonzeroExecutedState } from "./live-assertions";
 
 describe("Transport Contracts & Precision Verification", () => {
   let server: http.Server;
@@ -352,6 +354,134 @@ describe("Transport Contracts & Precision Verification", () => {
         /JSON-RPC response ID mismatch: expected \d+, got 999999/,
       );
     });
+
+    it("handles connection loss mid-request (abrupt socket destruction) without leaking credentials", async () => {
+      nextHandler = (req) => {
+        // Abruptly destroy the underlying socket mid-request
+        req.socket.destroy();
+      };
+
+      const client = new KovanicaClient({
+        url: `http://user:supersecretpass@127.0.0.1:${serverPort}/rpc`,
+        headers: { Authorization: "Bearer secret-bearer-token-9999" },
+      });
+
+      let caughtError: unknown;
+      try {
+        await client.blockNumber();
+      } catch (err) {
+        caughtError = err;
+      }
+
+      expect(caughtError).toBeInstanceOf(KovanicaTransportError);
+      const transportErr = caughtError as KovanicaTransportError;
+      expect(transportErr.message).not.toContain("supersecretpass");
+      expect(transportErr.message).not.toContain("secret-bearer-token-9999");
+      expect(transportErr.message).toMatch(/\*\*\*|fetch failed|socket|closed|ECONNRESET/i);
+    });
+
+    it("recovers cleanly on subsequent valid request across transport and RPC failure modes", async () => {
+      const client = new KovanicaClient({
+        url: serverUrl,
+        timeoutMs: 40,
+      });
+
+      // 1. Recover after connection drop (abrupt socket destruction)
+      nextHandler = (req) => {
+        req.socket.destroy();
+      };
+      await expect(client.blockNumber()).rejects.toThrow(KovanicaTransportError);
+
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: "0x1" }));
+      };
+      const resAfterDrop = await client.blockNumber();
+      expect(resAfterDrop).toBe(1n);
+
+      // 2. Recover after timeout
+      nextHandler = (_req, res) => {
+        setTimeout(() => {
+          res.writeHead(200, { "Content-Type": "application/json" });
+          res.end(JSON.stringify({ jsonrpc: "2.0", id: 99, result: "0x2" }));
+        }, 100);
+      };
+      await expect(client.blockNumber()).rejects.toThrow(KovanicaTimeoutError);
+
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: "0x2" }));
+      };
+      const resAfterTimeout = await client.blockNumber();
+      expect(resAfterTimeout).toBe(2n);
+
+      // 3. Recover after cancellation (AbortSignal)
+      const controller = new AbortController();
+      controller.abort();
+      await expect(client.blockNumber({ signal: controller.signal })).rejects.toThrow();
+
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: "0x3" }));
+      };
+      const resAfterAbort = await client.blockNumber();
+      expect(resAfterAbort).toBe(3n);
+
+      // 4. Recover after HTTP 500 error
+      nextHandler = (_req, res) => {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("Internal Server Error");
+      };
+      await expect(client.blockNumber()).rejects.toThrow(KovanicaTransportError);
+
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: "0x4" }));
+      };
+      const resAfter500 = await client.blockNumber();
+      expect(resAfter500).toBe(4n);
+
+      // 5. Recover after malformed JSON response
+      nextHandler = (_req, res) => {
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end("<html>Not JSON</html>");
+      };
+      await expect(client.blockNumber()).rejects.toThrow();
+
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: "0x5" }));
+      };
+      const resAfterMalformed = await client.blockNumber();
+      expect(resAfterMalformed).toBe(5n);
+
+      // 6. Recover after JSON-RPC error
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            error: { code: RpcErrorCode.MethodNotFound, message: "Method not found" },
+          }),
+        );
+      };
+      await expect(client.call("nonexistent_method")).rejects.toThrow(KovanicaRpcError);
+
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: "0x6" }));
+      };
+      const resAfterRpcError = await client.blockNumber();
+      expect(resAfterRpcError).toBe(6n);
+    });
   });
 
   // ==========================================================================
@@ -606,6 +736,528 @@ describe("Transport Contracts & Precision Verification", () => {
       const sanitizedBasic = sanitizeDiagnostics(basicMsg);
       expect(sanitizedBasic).not.toContain("dXNlcjpwYXNz");
       expect(sanitizedBasic).toContain("Basic ***");
+    });
+  });
+
+  // ==========================================================================
+  // C. Error Non-Conversion Contracts
+  // ==========================================================================
+
+  describe("C. Error non-conversion: failures never converted to zero, empty success, or healthy node", () => {
+    it("ensures getBalance throws on transport error, RPC error, and absent result, preserving explicit zero", async () => {
+      const client = new KovanicaClient({ url: serverUrl });
+
+      // 1. Transport failure (HTTP 503) -> must throw KovanicaTransportError, NOT return 0n
+      nextHandler = (_req, res) => {
+        res.writeHead(503, { "Content-Type": "text/plain" });
+        res.end("Service Unavailable");
+      };
+      await expect(client.getBalance("kvnc1testaddr")).rejects.toThrow(KovanicaTransportError);
+
+      // 2. JSON-RPC error (-32000) -> must throw KovanicaRpcError, NOT return 0n
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            error: { code: -32000, message: "Account not found in state trie" },
+          }),
+        );
+      };
+      await expect(client.getBalance("kvnc1testaddr")).rejects.toThrow(KovanicaRpcError);
+
+      // 3. Absent / null result -> must throw TypeError, NOT return 0n
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: null }));
+      };
+      await expect(client.getBalance("kvnc1testaddr")).rejects.toThrow(TypeError);
+
+      // 4. Legitimate explicit zero ("0x0", "0") -> must return 0n
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: "0x0" }));
+      };
+      const zeroHex = await client.getBalance("kvnc1testaddr");
+      expect(zeroHex).toBe(0n);
+
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: "0" }));
+      };
+      const zeroDec = await client.getBalance("kvnc1testaddr");
+      expect(zeroDec).toBe(0n);
+    });
+
+    it("ensures getRewards and getStake throw on failure/absent result and preserve explicit zero", async () => {
+      const client = new KovanicaClient({ url: serverUrl });
+
+      // getRewards
+      nextHandler = (_req, res) => {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("Internal Server Error");
+      };
+      await expect(client.getRewards("kvnc1testaddr")).rejects.toThrow(KovanicaTransportError);
+
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            error: { code: -32603, message: "Internal consensus failure" },
+          }),
+        );
+      };
+      await expect(client.getRewards("kvnc1testaddr")).rejects.toThrow(KovanicaRpcError);
+
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: null }));
+      };
+      await expect(client.getRewards("kvnc1testaddr")).rejects.toThrow(TypeError);
+
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: "0x0" }));
+      };
+      expect(await client.getRewards("kvnc1testaddr")).toBe(0n);
+
+      // getStake
+      nextHandler = (_req, res) => {
+        res.writeHead(502, { "Content-Type": "text/plain" });
+        res.end("Bad Gateway");
+      };
+      await expect(client.getStake("kvnc1testaddr")).rejects.toThrow(KovanicaTransportError);
+
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            error: { code: -32000, message: "Validator stake unavailable" },
+          }),
+        );
+      };
+      await expect(client.getStake("kvnc1testaddr")).rejects.toThrow(KovanicaRpcError);
+
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: null }));
+      };
+      await expect(client.getStake("kvnc1testaddr")).rejects.toThrow(TypeError);
+
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: "0x0" }));
+      };
+      expect(await client.getStake("kvnc1testaddr")).toBe(0n);
+    });
+
+    it("ensures blockNumber throws on failure and never converts failure or null to 0n", async () => {
+      const client = new KovanicaClient({ url: serverUrl });
+
+      // Transport error -> throws KovanicaTransportError
+      nextHandler = (_req, res) => {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("Server Error");
+      };
+      await expect(client.blockNumber()).rejects.toThrow(KovanicaTransportError);
+
+      // RPC error -> throws KovanicaRpcError
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            error: { code: -32603, message: "Storage read failure" },
+          }),
+        );
+      };
+      await expect(client.blockNumber()).rejects.toThrow(KovanicaRpcError);
+
+      // Absent / null result -> throws TypeError
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: null }));
+      };
+      await expect(client.blockNumber()).rejects.toThrow(TypeError);
+
+      // Explicit zero -> returns 0n (valid genesis committed height)
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: "0x0" }));
+      };
+      expect(await client.blockNumber()).toBe(0n);
+    });
+
+    it("ensures syncStatus throws on failure and never converts failure or missing fields into healthy/synced status", async () => {
+      const client = new KovanicaClient({ url: serverUrl });
+
+      // Transport error -> throws KovanicaTransportError (never returns a fake sync status)
+      nextHandler = (_req, res) => {
+        res.writeHead(503, { "Content-Type": "text/plain" });
+        res.end("Observer unavailable");
+      };
+      await expect(client.syncStatus()).rejects.toThrow(KovanicaTransportError);
+
+      // RPC error -> throws KovanicaRpcError
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            error: { code: -32000, message: "P2P network subsystem starting up" },
+          }),
+        );
+      };
+      await expect(client.syncStatus()).rejects.toThrow(KovanicaRpcError);
+
+      // Non-object result -> throws TypeError
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result: null }));
+      };
+      await expect(client.syncStatus()).rejects.toThrow("Invalid syncStatus response: expected an object");
+
+      // Incomplete result missing catchingUp: status.catchingUp is undefined, isNodeSynced is indeterminate
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              localTipRound: 10,
+              committedHeight: 10,
+              peerCount: 2,
+              peers: [],
+              // catchingUp omitted
+            },
+          }),
+        );
+      };
+      const statusMissingCatchingUp = await client.syncStatus();
+      expect(statusMissingCatchingUp.catchingUp).toBeUndefined();
+      expect(isNodeSynced(statusMissingCatchingUp)).toBeUndefined();
+
+      // catchingUp: false with 0 peers: isNodeSynced is indeterminate (never falsely claimed as synced!)
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            result: {
+              localTipRound: 10,
+              committedHeight: 10,
+              catchingUp: false,
+              peerCount: 0,
+              peers: [],
+            },
+          }),
+        );
+      };
+      const statusZeroPeers = await client.syncStatus();
+      expect(statusZeroPeers.catchingUp).toBe(false);
+      expect(statusZeroPeers.peerCount).toBe(0);
+      expect(isNodeSynced(statusZeroPeers)).toBeUndefined();
+    });
+
+    it("ensures getValidators, getMiningInfo, and getDagTips throw on transport and RPC failures", async () => {
+      const client = new KovanicaClient({ url: serverUrl });
+
+      // getValidators transport failure -> throws KovanicaTransportError (never converts to [])
+      nextHandler = (_req, res) => {
+        res.writeHead(500, { "Content-Type": "text/plain" });
+        res.end("Crash");
+      };
+      await expect(client.getValidators()).rejects.toThrow(KovanicaTransportError);
+
+      // getValidators RPC error -> throws KovanicaRpcError
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            error: { code: -32601, message: "Method not found" },
+          }),
+        );
+      };
+      await expect(client.getValidators()).rejects.toThrow(KovanicaRpcError);
+
+      // getMiningInfo transport failure -> throws KovanicaTransportError
+      nextHandler = (_req, res) => {
+        res.writeHead(502, { "Content-Type": "text/plain" });
+        res.end("Bad Gateway");
+      };
+      await expect(client.getMiningInfo()).rejects.toThrow(KovanicaTransportError);
+
+      // getDagTips RPC error -> throws KovanicaRpcError
+      nextHandler = async (req, res) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        res.end(
+          JSON.stringify({
+            jsonrpc: "2.0",
+            id: body.id,
+            error: { code: -32000, message: "DAG store uninitialized" },
+          }),
+        );
+      };
+      await expect(client.getDagTips()).rejects.toThrow(KovanicaRpcError);
+    });
+  });
+
+  // ==========================================================================
+  // D. Synthetic Fixture Verification of Live Execution Assertions
+  // ==========================================================================
+
+  describe("D. Synthetic fixture verification of live execution assertions", () => {
+    // SYNTHETIC FIXTURE A: Node reporting genesis height 0 (execution not started)
+    // Provenance: Synthetic fixture for offline assertion logic testing.
+    const SYNTHETIC_FIXTURE_GENESIS_HEIGHT_ZERO = {
+      blockNumber: "0x0",
+      syncStatus: {
+        committedHeight: "0x0",
+        localTipRound: "0x0",
+        catchingUp: false,
+        peerCount: 1,
+        peers: [{ peerId: "12D3KooWSyntheticObserver0", reportedTipRound: "0x0" }],
+      },
+      validators: [
+        { address: "kvnc1val1synthetic000000000000000000000000000", stake: "0x1", commission_bps: 0, active: true },
+        { address: "kvnc1val2synthetic000000000000000000000000000", stake: "0x1", commission_bps: 0, active: true },
+      ],
+      authorAddress: "kvnc1val1synthetic000000000000000000000000000",
+      balance: "450000000000000",
+      rewards: "0x0",
+      stake: "0x1",
+      miningInfo: {
+        chain_id: CHAIN_IDS.HYBRID_TESTNET,
+        mining_enabled: false,
+        mining_threads: 0,
+        target_bits: "0x1f00ffff",
+        target: "0x000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        difficulty: "0x100",
+        target_block_time_ms: 4000,
+        ghostdag_k: 5,
+        network_hashrate_estimate: "0x1000",
+        dag_tips_count: 1,
+      },
+      dagTips: {
+        chain_id: CHAIN_IDS.HYBRID_TESTNET,
+        count: 1,
+        max_round: "0x0",
+        ghostdag_k: 5,
+        tips: ["0x" + "11".repeat(32)],
+      },
+      block: null,
+    };
+
+    // SYNTHETIC FIXTURE B: Nonzero height (5) but author balance is at unrewarded genesis liquid baseline (450,000 KVNC = 450_000_000_000_000 atoms).
+    // Execution evidence is absent because no block rewards have been credited.
+    // Provenance: Synthetic fixture for offline assertion logic testing.
+    const SYNTHETIC_FIXTURE_UNREWARDED_NONZERO_HEIGHT = {
+      blockNumber: "0x5",
+      syncStatus: {
+        committedHeight: "0x5",
+        localTipRound: "0x5",
+        catchingUp: false,
+        peerCount: 1,
+        peers: [{ peerId: "12D3KooWSyntheticObserver1", reportedTipRound: "0x5" }],
+      },
+      validators: [
+        { address: "kvnc1val1synthetic000000000000000000000000000", stake: "0x1", commission_bps: 0, active: true },
+        { address: "kvnc1val2synthetic000000000000000000000000000", stake: "0x1", commission_bps: 0, active: true },
+      ],
+      authorAddress: "kvnc1val1synthetic000000000000000000000000000",
+      balance: "450000000000000", // Exactly genesis liquid baseline: NO execution reward!
+      rewards: "0x0",
+      stake: "0x1",
+      miningInfo: {
+        chain_id: CHAIN_IDS.HYBRID_TESTNET,
+        mining_enabled: false,
+        mining_threads: 0,
+        target_bits: "0x1f00ffff",
+        target: "0x000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        difficulty: "0x100",
+        target_block_time_ms: 4000,
+        ghostdag_k: 5,
+        network_hashrate_estimate: "0x1000",
+        dag_tips_count: 1,
+      },
+      dagTips: {
+        chain_id: CHAIN_IDS.HYBRID_TESTNET,
+        count: 1,
+        max_round: "0x5",
+        ghostdag_k: 5,
+        tips: ["0x" + "22".repeat(32)],
+      },
+      block: null,
+    };
+
+    // SYNTHETIC FIXTURE C: Nonzero height (5) with author balance reflecting mined block reward (450,000 KVNC + 2.5 KVNC = 450_002_500_000_000 atoms).
+    // Provenance: Synthetic fixture for offline assertion logic testing.
+    const SYNTHETIC_FIXTURE_REWARDED_EXECUTED = {
+      blockNumber: "0x5",
+      syncStatus: {
+        committedHeight: "0x5",
+        localTipRound: "0x5",
+        catchingUp: false,
+        peerCount: 1,
+        peers: [{ peerId: "12D3KooWSyntheticObserver2", reportedTipRound: "0x5" }],
+      },
+      validators: [
+        { address: "kvnc1val1synthetic000000000000000000000000000", stake: "0x1", commission_bps: 0, active: true },
+        { address: "kvnc1val2synthetic000000000000000000000000000", stake: "0x1", commission_bps: 0, active: true },
+      ],
+      authorAddress: "kvnc1val1synthetic000000000000000000000000000",
+      balance: "450002500000000", // Genesis baseline + 2.5 KVNC reward: genuine executed state!
+      rewards: "0x0",
+      stake: "0x1",
+      miningInfo: {
+        chain_id: CHAIN_IDS.HYBRID_TESTNET,
+        mining_enabled: false,
+        mining_threads: 0,
+        target_bits: "0x1f00ffff",
+        target: "0x000000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+        difficulty: "0x100",
+        target_block_time_ms: 4000,
+        ghostdag_k: 5,
+        network_hashrate_estimate: "0x1000",
+        dag_tips_count: 1,
+      },
+      dagTips: {
+        chain_id: CHAIN_IDS.HYBRID_TESTNET,
+        count: 1,
+        max_round: "0x5",
+        ghostdag_k: 5,
+        tips: ["0x" + "33".repeat(32)],
+      },
+      block: {
+        number: "0x5",
+        round: "0x5",
+        hash: "0x" + "44".repeat(32),
+        parentHash: "0x" + "00".repeat(32),
+        timestamp: "0x672d0000",
+        transactions: [],
+      },
+    };
+
+    function createSyntheticMockHandler(fixture: typeof SYNTHETIC_FIXTURE_GENESIS_HEIGHT_ZERO) {
+      return async (req: http.IncomingMessage, res: http.ServerResponse) => {
+        const body = await readRequestBody(req);
+        res.writeHead(200, { "Content-Type": "application/json" });
+        let result: any = null;
+        switch (body.method) {
+          case "kovanica_blockNumber":
+            result = fixture.blockNumber;
+            break;
+          case "kovanica_syncStatus":
+            result = fixture.syncStatus;
+            break;
+          case "kovanica_getValidators":
+            result = fixture.validators;
+            break;
+          case "kovanica_getBalance":
+            result = fixture.balance;
+            break;
+          case "kovanica_getRewards":
+            result = fixture.rewards;
+            break;
+          case "kovanica_getStake":
+            result = fixture.stake;
+            break;
+          case "kovanica_getMiningInfo":
+            result = fixture.miningInfo;
+            break;
+          case "kovanica_getDagTips":
+            result = fixture.dagTips;
+            break;
+          case "kovanica_getBlockByNumber":
+            result = fixture.block ?? null;
+            break;
+          default:
+            res.end(
+              JSON.stringify({
+                jsonrpc: "2.0",
+                id: body.id,
+                error: { code: -32601, message: `Method not found: ${body.method}` },
+              }),
+            );
+            return;
+        }
+        res.end(JSON.stringify({ jsonrpc: "2.0", id: body.id, result }));
+      };
+    }
+
+    it("proves assertNonzeroExecutedState rejects a node at genesis height 0", async () => {
+      nextHandler = createSyntheticMockHandler(SYNTHETIC_FIXTURE_GENESIS_HEIGHT_ZERO);
+      const client = new KovanicaClient({ url: serverUrl });
+
+      await expect(
+        assertNonzeroExecutedState(client, {
+          authorAddress: SYNTHETIC_FIXTURE_GENESIS_HEIGHT_ZERO.authorAddress,
+        }),
+      ).rejects.toThrow(/Expected nonzero committed height, got 0/);
+    });
+
+    it("proves a synthetic fixture with nonzero height but no executed balance/reward fails the execution assertion", async () => {
+      nextHandler = createSyntheticMockHandler(SYNTHETIC_FIXTURE_UNREWARDED_NONZERO_HEIGHT);
+      const client = new KovanicaClient({ url: serverUrl });
+
+      // The author has balance 450_000_000_000_000n (exact genesis baseline, no reward).
+      // The assertion checks: expect(balance).toBeGreaterThan(450_000_000_000_000n).
+      // This MUST FAIL with an AssertionError, proving that height alone without executed balance/reward
+      // CANNOT satisfy the test claiming executed nonzero state!
+      await expect(
+        assertNonzeroExecutedState(client, {
+          authorAddress: SYNTHETIC_FIXTURE_UNREWARDED_NONZERO_HEIGHT.authorAddress,
+        }),
+      ).rejects.toThrow(/expected 450000000000000.* to be greater than 450000000000000/);
+    });
+
+    it("proves assertNonzeroExecutedState passes when nonzero height has verified executed reward", async () => {
+      nextHandler = createSyntheticMockHandler(SYNTHETIC_FIXTURE_REWARDED_EXECUTED);
+      const client = new KovanicaClient({ url: serverUrl });
+
+      const executed = await assertNonzeroExecutedState(client, {
+        authorAddress: SYNTHETIC_FIXTURE_REWARDED_EXECUTED.authorAddress,
+      });
+
+      expect(executed.height).toBe(5n);
+      expect(executed.balance).toBe(450_002_500_000_000n);
+      expect(executed.balance).toBeGreaterThan(450_000_000_000_000n);
+      expect(executed.validators.length).toBe(2);
+      expect(executed.status.committedHeight).toBe(5n);
+      expect(executed.mining.chain_id).toBe(CHAIN_IDS.HYBRID_TESTNET);
+      expect(executed.tips.max_round).toBe(5n);
+      expect(executed.block).not.toBeNull();
+      expect(executed.block!.number).toBe(5n);
     });
   });
 });

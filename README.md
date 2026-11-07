@@ -228,6 +228,24 @@ npm run test:live:isolated
 ```
 Orchestrates L1's documented isolated topology (Observer + Producer on loopback `127.0.0.1` with disposable directories) using the approved `kovanica-node` binary, verifies peering, and executes required-live verification against the Observer RPC. Tears down all processes and temporary state on exit.
 
+### 4. Deterministic RPC Failure-Path & Recovery Regressions
+```bash
+npm test
+```
+The deterministic test suite (`tests/transport-contracts.test.ts`) verifies client behavior against local mock HTTP servers without requiring an active node or network:
+- **Abrupt Connection Loss:** Socket termination mid-flight produces a `KovanicaTransportError` with sanitized credentials and without hanging.
+- **Client Recovery Across Failure Modes:** Verifies that after connection drops, timeouts, cancellation (`AbortSignal`), HTTP 500 responses, malformed JSON, or JSON-RPC errors, the same `KovanicaClient` instance cleanly recovers and processes subsequent requests with incrementing request IDs.
+- **Error Non-Conversion Contracts:** Failures, RPC errors, and absent results are **never converted** into `0n`, `0`, `[]`, or healthy node claims across `getBalance`, `getRewards`, `getStake`, `blockNumber`, `syncStatus`, `getValidators`, `getMiningInfo`, and `getDagTips`. Explicit zero values (`"0x0"`, `"0"`) remain distinct from missing data and are preserved as `0n`.
+- **Synthetic Fixture Verification of Execution Assertions:** Tests the live execution assertion logic (`assertNonzeroExecutedState`) against synthetic fixtures (`SYNTHETIC_FIXTURE_*`), proving that a fixture reporting nonzero committed height but lacking executed author rewards (balance at unrewarded genesis liquid baseline `450_000_000_000_000n`) fails the execution assertion. Synthetic mock tests verify assertion logic offline and do not claim live DAA or node acceptance.
+
+### 5. Test Modes and Outcome Meanings
+
+| Mode | Command | Live Node Needed | Outcome if Node Unavailable | Outcome if Height is 0 |
+| :--- | :--- | :---: | :--- | :--- |
+| **Default / Offline** | `npm test` | No | Skips live tests cleanly (`PASS`); offline regressions pass | Skips nonzero execution as `[BLOCKED]` |
+| **Required-Live** | `npm run test:live` | Yes | Fails immediately (`exit 1`, `[REQUIRED-LIVE FAILURE]`) | Skips nonzero execution as `[BLOCKED]` |
+| **Isolated Cluster** | `npm run test:live:isolated` | Auto-spawned | Fails if node binary missing (`[BLOCKED]`) | Waits for mined blocks; asserts nonzero execution |
+
 ---
 
 ## Compatibility Limits
