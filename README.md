@@ -220,6 +220,13 @@ In required-live mode:
 - The suite **fails immediately** if the configured node is unreachable or fails strict JSON-RPC readiness validation.
 - **HTTP 200 alone is rejected as a readiness check:** the probe verifies that the response is valid JSON-RPC 2.0 without an error object, and conforms to the `kovanica_syncStatus` schema (`catchingUp` boolean, `peerCount` integer).
 - Verifies live `syncStatus`, `blockNumber`, network identity tag (`<chain_id>-<16_hex_genesis>`), and Chain 5 mining/DAG endpoints (`kovanica_getMiningInfo`, `kovanica_getDagTips`).
+- Distinguishes basic genesis readiness from stronger nonzero executed state (`[BLOCKED]` when height remains 0).
+
+### 3. Automated Isolated Cluster Runner
+```bash
+npm run test:live:isolated
+```
+Orchestrates L1's documented isolated topology (Observer + Producer on loopback `127.0.0.1` with disposable directories) using the approved `kovanica-node` binary, verifies peering, and executes required-live verification against the Observer RPC. Tears down all processes and temporary state on exit.
 
 ---
 
