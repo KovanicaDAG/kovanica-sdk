@@ -221,7 +221,7 @@ describe("Live L1 Node Interoperability", () => {
   // ==========================================================================
 
   describe("Live node RPC queries", () => {
-    it("interoperates with live Kovanica L1 RPC node", async (ctx) => {
+    it("verifies basic genesis interoperability against live Kovanica L1 RPC node", async (ctx) => {
       const readiness = await checkNodeReadiness(LIVE_RPC_URL);
 
       if (!readiness.ready) {
@@ -276,7 +276,11 @@ describe("Live L1 Node Interoperability", () => {
       expect(typeof blockNumber).toBe("bigint");
       expect(blockNumber >= 0n).toBe(true);
 
-      // 4. Network identity & Chain 5 mining/DAG queries
+      // 4. Pending transactions query
+      const pending = await client.getPendingTransactions();
+      expect(Array.isArray(pending)).toBe(true);
+
+      // 5. Network identity & Chain 5 mining/DAG queries
       if (status.networkTag) {
         expect(typeof status.networkTag).toBe("string");
         const parts = status.networkTag.split("-");
@@ -310,6 +314,45 @@ describe("Live L1 Node Interoperability", () => {
           }
         }
       }
+    });
+
+    it("verifies nonzero executed block and transaction acceptance", async (ctx) => {
+      const readiness = await checkNodeReadiness(LIVE_RPC_URL);
+
+      if (!readiness.ready) {
+        if (REQUIRE_LIVE) {
+          throw new Error(
+            `[REQUIRED-LIVE FAILURE] Required live node check failed for ${LIVE_RPC_URL}: ${readiness.reason}. ` +
+              "Ensure an isolated local node is running and configured via KOVANICA_RPC_URL.",
+          );
+        } else {
+          ctx.skip(
+            `[Live Interop Skipped] No conforming Kovanica L1 node ready at ${LIVE_RPC_URL} (${readiness.reason}).`,
+          );
+          return;
+        }
+      }
+
+      const client = new KovanicaClient(LIVE_RPC_URL);
+      const height = await client.blockNumber();
+
+      if (height === 0n) {
+        // In an isolated genesis-only node without external mutation / transaction generation,
+        // nonzero executed acceptance prerequisite is unavailable.
+        ctx.skip(
+          "[BLOCKED] Stronger nonzero/executed acceptance requires independently demonstrated L1 execution past genesis (current height: 0). " +
+            "Read-only genesis interop passed; nonzero execution acceptance remains BLOCKED until execution lane produces committed blocks.",
+        );
+        return;
+      }
+
+      // If nonzero execution is present on the live node, verify executed block and transactions
+      const block = await client.getBlockByNumber(height, true);
+      expect(block).not.toBeNull();
+      expect(block!.number).toBe(height);
+      expect(typeof block!.hash).toBe("string");
+      expect(block!.hash.startsWith("0x")).toBe(true);
+      expect(Array.isArray(block!.transactions)).toBe(true);
     });
   });
 });

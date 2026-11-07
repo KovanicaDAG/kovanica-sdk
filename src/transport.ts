@@ -65,6 +65,22 @@ export function parseLosslessJson(text: string): unknown {
   return JSON.parse(safeText);
 }
 
+/**
+ * Redact sensitive credentials (tokens, passwords, basic/bearer auth) from diagnostics.
+ */
+export function sanitizeDiagnostics(text: string, maxLen = 500): string {
+  if (!text) return "";
+  let sanitized = text
+    .replace(/:\/\/([^:]+):([^@]+)@/g, "://$1:***@")
+    .replace(/(Bearer\s+)[A-Za-z0-9._~+/-]+=*/gi, "$1***")
+    .replace(/(Basic\s+)[A-Za-z0-9+/=]+/gi, "$1***")
+    .replace(/(password|secret|token|api_?key)=([^&\s"']+)/gi, "$1=***");
+  if (sanitized.length > maxLen) {
+    sanitized = sanitized.slice(0, maxLen) + "...";
+  }
+  return sanitized;
+}
+
 export class HttpTransport implements Transport {
   readonly url: string;
   private readonly headers: Record<string, string>;
@@ -142,8 +158,10 @@ export class HttpTransport implements Transport {
       });
 
       if (!response.ok) {
+        const bodyText = await response.text().catch(() => "");
+        const sanitizedBody = sanitizeDiagnostics(bodyText);
         throw new KovanicaTransportError(
-          `HTTP ${response.status} ${response.statusText}: ${await response.text().catch(() => "")}`,
+          `HTTP ${response.status} ${response.statusText}${sanitizedBody ? `: ${sanitizedBody}` : ""}`,
           { status: response.status, statusText: response.statusText },
         );
       }
@@ -162,9 +180,50 @@ export class HttpTransport implements Transport {
         });
       }
 
-      const rpcRes = parsed as JsonRpcResponse<TResult>;
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        throw new KovanicaTransportError(
+          "Invalid JSON-RPC 2.0 response: payload must be a JSON object",
+        );
+      }
+
+      const rpcRes = parsed as Partial<JsonRpcResponse<TResult>>;
+
+      if (rpcRes.jsonrpc !== "2.0") {
+        throw new KovanicaTransportError(
+          `Invalid JSON-RPC 2.0 response: missing or invalid "jsonrpc" version (expected "2.0", got "${rpcRes.jsonrpc}")`,
+        );
+      }
+
+      if (rpcRes.result === undefined && rpcRes.error === undefined) {
+        throw new KovanicaTransportError(
+          "Invalid JSON-RPC 2.0 response: neither result nor error member present",
+        );
+      }
+
+      if (rpcRes.result !== undefined && rpcRes.error !== undefined) {
+        throw new KovanicaTransportError(
+          "Invalid JSON-RPC 2.0 response: both result and error members present",
+        );
+      }
+
+      if (rpcRes.id !== req.id) {
+        if (!(rpcRes.error && rpcRes.id === null)) {
+          throw new KovanicaTransportError(
+            `JSON-RPC response ID mismatch: expected ${req.id}, got ${rpcRes.id}`,
+          );
+        }
+      }
 
       if (rpcRes.error) {
+        if (
+          typeof rpcRes.error !== "object" ||
+          typeof rpcRes.error.code !== "number" ||
+          typeof rpcRes.error.message !== "string"
+        ) {
+          throw new KovanicaTransportError(
+            "Invalid JSON-RPC 2.0 response: malformed error object",
+          );
+        }
         throw new KovanicaRpcError(
           rpcRes.error.code,
           rpcRes.error.message,
@@ -190,7 +249,7 @@ export class HttpTransport implements Transport {
         throw new KovanicaAbortError("Request was aborted");
       }
       throw new KovanicaTransportError(
-        err instanceof Error ? err.message : String(err),
+        sanitizeDiagnostics(err instanceof Error ? err.message : String(err)),
         { cause: err },
       );
     } finally {
