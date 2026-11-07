@@ -1,6 +1,7 @@
 /**
  * Chain IDs and configuration for Kovanica networks.
- * Verified against crates/kovanica-params/src/lib.rs at commit 2c2e54b4615eb53c61ebb9963b7606d2ccbfaa47.
+ * Verified against crates/kovanica-params/src/lib.rs and crates/kovanica-types/src/signing.rs
+ * at Kovanica main commit feab9050b178ee6d25798c0976a7fa138e90f537.
  */
 
 export const CHAIN_IDS = {
@@ -34,9 +35,8 @@ export const KNOWN_CHAINS: Record<number, ChainConfig> = {
     name: "Mainnet",
     ticker: "KVNC",
     decimals: 9,
-    consensus: "Hybrid PoW + GHOSTDAG",
+    consensus: "Mysticeti",
     targetBlockTimeMs: 4000,
-    ghostdagK: 5,
     allowsLegacyAddress: false,
     description: "Kovanica Mainnet. Strict PRO-21 base32 addresses only.",
   },
@@ -88,12 +88,11 @@ export const KNOWN_CHAINS: Record<number, ChainConfig> = {
     name: "Local Devnet",
     ticker: "KVNC",
     decimals: 9,
-    consensus: "Hybrid PoW + GHOSTDAG",
+    consensus: "Mysticeti",
     targetBlockTimeMs: 4000,
-    ghostdagK: 5,
     allowsLegacyAddress: true,
     defaultRpcUrl: "http://127.0.0.1:8545/rpc",
-    description: "Single-node or local cluster testing. Legacy hex addresses allowed.",
+    description: "Single-node or local cluster testing (Mysticeti). Legacy hex addresses allowed.",
   },
 };
 

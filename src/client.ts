@@ -10,6 +10,7 @@ import type {
   LeaderSlot,
   MiningInfo,
   RequestOptions,
+  SyncPeerStatus,
   SyncStatus,
   TransactionKind,
   TransactionReceipt,
@@ -21,6 +22,57 @@ import { parseQuantity, toHexQuantity } from "./units";
 export interface KovanicaClientOptions extends HttpTransportOptions {
   /** Optional custom transport. If provided, `url` and transport options are ignored. */
   transport?: Transport;
+}
+
+/**
+ * Safely parse an optional quantity into a bigint.
+ * - null or undefined -> undefined (preserves unavailable state; never turns into 0n)
+ * - 0, "0", "0x0" -> 0n (preserves explicit zero)
+ * - valid hex or decimal string / number / bigint -> parsed bigint
+ * - boolean / object / invalid string -> undefined (wrong types are discarded rather than corrupting state)
+ * - unsafe float numbers (> Number.MAX_SAFE_INTEGER) -> parseQuantity throws TypeError
+ */
+export function parseSafeOptionalQuantity(value: unknown): bigint | undefined {
+  if (value === undefined || value === null) {
+    return undefined;
+  }
+  if (typeof value === "boolean" || typeof value === "object" || typeof value === "symbol") {
+    return undefined;
+  }
+  if (typeof value === "string") {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) return undefined;
+    if (!trimmed.startsWith("0x") && !trimmed.startsWith("0X") && !/^-?\d+$/.test(trimmed)) {
+      return undefined;
+    }
+  }
+  return parseQuantity(value);
+}
+
+/**
+ * Evaluates whether a node is confirmed to be in sync based on its SyncStatus.
+ *
+ * In Kovanica L1, `catchingUp === false` alone is insufficient to claim a node is synced:
+ * the node must also have a known local tip round and at least one connected peer.
+ * If catchingUp is true, returns false (node is actively catching up).
+ * If catchingUp is undefined, or peerCount is 0 / undefined, or localTipRound is undefined,
+ * returns undefined (state is unknown/indeterminate).
+ */
+export function isNodeSynced(status: SyncStatus): boolean | undefined {
+  if (status.catchingUp === true) {
+    return false;
+  }
+  if (status.catchingUp === false) {
+    if (
+      status.localTipRound !== undefined &&
+      status.peerCount !== undefined &&
+      status.peerCount > 0
+    ) {
+      return true;
+    }
+    return undefined;
+  }
+  return undefined;
 }
 
 export class KovanicaClient {
@@ -191,6 +243,7 @@ export class KovanicaClient {
         raw.transactionIndex != null ? parseQuantity(raw.transactionIndex) : null,
       status: typeof raw.status === "number" ? raw.status : Number(parseQuantity(raw.status)),
       success: Boolean(raw.success),
+      gasUsed: raw.gasUsed != null ? parseQuantity(raw.gasUsed) : undefined,
     };
   }
 
@@ -260,8 +313,8 @@ export class KovanicaClient {
     );
     return (raw || []).map((slot) => ({
       round: parseQuantity(slot.round),
-      leaderIndex: slot.leader_index,
-      leaderAddress: slot.leader_address,
+      leaderIndex: (slot.leaderIndex ?? slot.leader_index)!,
+      leaderAddress: (slot.leaderAddress ?? slot.leader_address)!,
     }));
   }
 
@@ -275,21 +328,114 @@ export class KovanicaClient {
    */
   async syncStatus(options?: RequestOptions): Promise<SyncStatus> {
     const raw = await this.call<RawSyncStatus>("kovanica_syncStatus", [], options);
+    if (!raw || typeof raw !== "object") {
+      throw new TypeError("Invalid syncStatus response: expected an object");
+    }
+
+    const localTipRound = parseSafeOptionalQuantity(raw.localTipRound ?? raw.local_tip_round);
+
+    const rawCommitted =
+      raw.committedHeight !== undefined && raw.committedHeight !== null
+        ? raw.committedHeight
+        : raw.committed_height !== undefined && raw.committed_height !== null
+          ? raw.committed_height
+          : raw.localHeight !== undefined && raw.localHeight !== null
+            ? raw.localHeight
+            : raw.local_height;
+    const committedHeight = parseSafeOptionalQuantity(rawCommitted);
+
+    const rawLocalHeight =
+      raw.localHeight !== undefined && raw.localHeight !== null
+        ? raw.localHeight
+        : raw.local_height !== undefined && raw.local_height !== null
+          ? raw.local_height
+          : raw.committedHeight !== undefined && raw.committedHeight !== null
+            ? raw.committedHeight
+            : raw.committed_height;
+    const localHeight = parseSafeOptionalQuantity(rawLocalHeight);
+
+    let catchingUp: boolean | undefined;
+    if (typeof raw.catchingUp === "boolean") {
+      catchingUp = raw.catchingUp;
+    } else if (typeof raw.catching_up === "boolean") {
+      catchingUp = raw.catching_up;
+    } else {
+      catchingUp = undefined;
+    }
+
+    const catchUpTarget = parseSafeOptionalQuantity(raw.catchUpTarget ?? raw.catch_up_target);
+    const behindBy = parseSafeOptionalQuantity(raw.behindBy ?? raw.behind_by);
+
+    let peerCount: number | undefined;
+    const rawCount =
+      raw.peerCount !== undefined && raw.peerCount !== null ? raw.peerCount : raw.peer_count;
+    if (typeof rawCount === "number" && Number.isSafeInteger(rawCount) && rawCount >= 0) {
+      peerCount = rawCount;
+    } else if (typeof rawCount === "string" && /^\d+$/.test(rawCount.trim())) {
+      const n = Number(rawCount.trim());
+      if (Number.isSafeInteger(n) && n >= 0) {
+        peerCount = n;
+      }
+    } else if (
+      typeof rawCount === "bigint" &&
+      rawCount >= 0n &&
+      rawCount <= BigInt(Number.MAX_SAFE_INTEGER)
+    ) {
+      peerCount = Number(rawCount);
+    } else {
+      peerCount = undefined;
+    }
+
+    const peers: SyncPeerStatus[] = [];
+    if (Array.isArray(raw.peers)) {
+      for (const item of raw.peers) {
+        if (item && typeof item === "object") {
+          const rawPeerId = item.peerId ?? item.peer_id ?? item.addr;
+          if (typeof rawPeerId === "string" && rawPeerId.trim().length > 0) {
+            const peerId = rawPeerId.trim();
+            const rawTip =
+              item.reportedTipRound !== undefined && item.reportedTipRound !== null
+                ? item.reportedTipRound
+                : item.reported_tip_round !== undefined && item.reported_tip_round !== null
+                  ? item.reported_tip_round
+                  : item.tip_round;
+            const reportedTipRound = parseSafeOptionalQuantity(rawTip);
+            peers.push({
+              peerId,
+              reportedTipRound,
+              peer_id: peerId,
+              reported_tip_round: reportedTipRound,
+              addr: peerId,
+              tip_round: reportedTipRound,
+            });
+          }
+        }
+      }
+    }
+
+    const rawTag = raw.networkTag ?? raw.network_tag;
+    const networkTag =
+      typeof rawTag === "string" && rawTag.trim().length > 0 ? rawTag.trim() : undefined;
+
     return {
-      local_tip_round: raw.local_tip_round != null ? parseQuantity(raw.local_tip_round) : undefined,
-      committed_height: raw.committed_height != null ? parseQuantity(raw.committed_height) : undefined,
-      local_height: raw.local_height != null ? parseQuantity(raw.local_height) : undefined,
-      catching_up: Boolean(raw.catching_up),
-      catch_up_target: raw.catch_up_target != null ? parseQuantity(raw.catch_up_target) : undefined,
-      behind_by: raw.behind_by != null ? parseQuantity(raw.behind_by) : undefined,
-      peer_count: raw.peer_count ?? (raw.peers?.length || 0),
-      peers: (raw.peers || []).map((p) => ({
-        addr: p.addr,
-        tip_round: p.tip_round != null ? parseQuantity(p.tip_round) : undefined,
-        latency_ms: p.latency_ms,
-        connected_secs: p.connected_secs,
-      })),
-      network_tag: raw.network_tag,
+      localTipRound,
+      committedHeight,
+      localHeight,
+      catchingUp,
+      catchUpTarget,
+      behindBy,
+      peerCount,
+      peers,
+      networkTag,
+
+      local_tip_round: localTipRound,
+      committed_height: committedHeight,
+      local_height: localHeight,
+      catching_up: catchingUp,
+      catch_up_target: catchUpTarget,
+      behind_by: behindBy,
+      peer_count: peerCount,
+      network_tag: networkTag,
     };
   }
 
@@ -394,6 +540,7 @@ interface RawTransactionReceipt {
   transactionIndex: string | number | null;
   status: string | number;
   success: boolean;
+  gasUsed?: string | number;
 }
 
 interface RawValidatorInfo {
@@ -406,27 +553,41 @@ interface RawValidatorInfo {
 
 interface RawLeaderSlot {
   round: string | number;
-  leader_index: number;
-  leader_address: string;
+  leader_index?: number;
+  leaderIndex?: number;
+  leader_address?: string;
+  leaderAddress?: string;
 }
 
 interface RawSyncPeerStatus {
-  addr: string;
-  tip_round?: string | number;
+  peerId?: string;
+  peer_id?: string;
+  reportedTipRound?: string | number | bigint;
+  reported_tip_round?: string | number | bigint;
+  addr?: string;
+  tip_round?: string | number | bigint;
   latency_ms?: number;
   connected_secs?: number;
 }
 
 interface RawSyncStatus {
-  local_tip_round?: string | number;
-  committed_height?: string | number;
-  local_height?: string | number;
-  catching_up: boolean;
-  catch_up_target?: string | number;
-  behind_by?: string | number;
-  peer_count: number;
-  peers: RawSyncPeerStatus[];
-  network_tag?: string;
+  localTipRound?: string | number | bigint;
+  local_tip_round?: string | number | bigint;
+  committedHeight?: string | number | bigint;
+  committed_height?: string | number | bigint;
+  localHeight?: string | number | bigint;
+  local_height?: string | number | bigint;
+  catchingUp?: boolean | null;
+  catching_up?: boolean | null;
+  catchUpTarget?: string | number | bigint;
+  catch_up_target?: string | number | bigint;
+  behindBy?: string | number | bigint;
+  behind_by?: string | number | bigint;
+  peerCount?: number | string | bigint | null;
+  peer_count?: number | string | bigint | null;
+  peers?: RawSyncPeerStatus[] | null;
+  networkTag?: string | null;
+  network_tag?: string | null;
 }
 
 interface RawMiningInfo {

@@ -31,6 +31,40 @@ export interface HttpTransportOptions {
   requestIdGenerator?: () => number | string;
 }
 
+/**
+ * Losslessly parse JSON text containing large unquoted integers that would otherwise
+ * exceed JavaScript IEEE-754 Number.MAX_SAFE_INTEGER and suffer precision corruption.
+ * Integers exceeding safe bounds (> 9007199254740991 or < -9007199254740991) are converted
+ * to strings prior to JSON parsing so downstream parseQuantity can parse them to bigint.
+ */
+export function parseLosslessJson(text: string): unknown {
+  const safeText = text.replace(
+    /("(?:\\.|[^"\\])*")|(-?\b\d+(?:\.\d+)?(?:[eE][+-]?\d+)?\b)/g,
+    (_match, stringLiteral, numberLiteral) => {
+      if (stringLiteral !== undefined) {
+        return stringLiteral;
+      }
+      if (
+        numberLiteral &&
+        !numberLiteral.includes(".") &&
+        !numberLiteral.includes("e") &&
+        !numberLiteral.includes("E")
+      ) {
+        try {
+          const b = BigInt(numberLiteral);
+          if (b > 9007199254740991n || b < -9007199254740991n) {
+            return `"${numberLiteral}"`;
+          }
+        } catch {
+          // not a valid bigint, leave as is
+        }
+      }
+      return numberLiteral;
+    },
+  );
+  return JSON.parse(safeText);
+}
+
 export class HttpTransport implements Transport {
   readonly url: string;
   private readonly headers: Record<string, string>;
@@ -116,7 +150,12 @@ export class HttpTransport implements Transport {
 
       let parsed: unknown;
       try {
-        parsed = await response.json();
+        if (typeof response.text === "function") {
+          const text = await response.text();
+          parsed = parseLosslessJson(text);
+        } else {
+          parsed = await response.json();
+        }
       } catch (err) {
         throw new KovanicaTransportError("Malformed JSON response from RPC server", {
           cause: err,

@@ -118,15 +118,15 @@ describe("KovanicaClient & HttpTransport", () => {
     expect(validators[0].commission_bps).toBe(500);
   });
 
-  it("handles syncStatus and node diagnostics", async () => {
+  it("handles syncStatus and node diagnostics with L1 camelCase contract", async () => {
     const mockSync = {
-      local_tip_round: "0x100",
-      committed_height: "0x90",
-      local_height: "0x90",
-      catching_up: false,
-      peer_count: 3,
-      peers: [{ addr: "192.168.1.1:8000", tip_round: "0x100", latency_ms: 12 }],
-      network_tag: "5-a1b2c3d4e5f60718",
+      localTipRound: 256,
+      committedHeight: 144,
+      localHeight: 144,
+      catchingUp: false,
+      peerCount: 3,
+      peers: [{ peerId: "12D3KooWpeer-a", reportedTipRound: 256 }],
+      networkTag: "5-a1b2c3d4e5f60718",
     };
 
     const mockTransport: Transport = {
@@ -135,11 +135,21 @@ describe("KovanicaClient & HttpTransport", () => {
     const client = new KovanicaClient({ transport: mockTransport });
 
     const status = await client.syncStatus();
+    expect(status.localTipRound).toBe(256n);
+    expect(status.committedHeight).toBe(144n);
+    expect(status.catchingUp).toBe(false);
+    expect(status.peerCount).toBe(3);
+    expect(status.peers[0].peerId).toBe("12D3KooWpeer-a");
+    expect(status.peers[0].reportedTipRound).toBe(256n);
+    expect(status.networkTag).toBe("5-a1b2c3d4e5f60718");
+
+    // Backwards-compatible aliases
     expect(status.local_tip_round).toBe(256n);
     expect(status.committed_height).toBe(144n);
     expect(status.catching_up).toBe(false);
     expect(status.peer_count).toBe(3);
-    expect(status.peers[0].latency_ms).toBe(12);
+    expect(status.peers[0].peer_id).toBe("12D3KooWpeer-a");
+    expect(status.peers[0].reported_tip_round).toBe(256n);
     expect(status.network_tag).toBe("5-a1b2c3d4e5f60718");
   });
 
