@@ -199,6 +199,30 @@ In Kovanica L1, **`catchingUp === false` alone is insufficient** to conclude a n
 
 ---
 
+## Testing & Live RPC Verification
+
+The test suite separates deterministic offline fixture tests from live node interoperability:
+
+### 1. Offline / Default Mode
+```bash
+npm test
+```
+Runs all unit tests, address encoders/decoders, chain registry checks, and source-backed JSON fixture regressions. If no live node is running, live network queries are cleanly skipped with an informative notice while offline verification passes.
+
+### 2. Required-Live Interoperability Mode
+```bash
+# Target an explicitly configured, isolated local node
+KOVANICA_RPC_URL=http://127.0.0.1:18545/rpc npm run test:live
+# or
+KOVANICA_REQUIRE_LIVE=1 KOVANICA_RPC_URL=http://127.0.0.1:18545/rpc npm test
+```
+In required-live mode:
+- The suite **fails immediately** if the configured node is unreachable or fails strict JSON-RPC readiness validation.
+- **HTTP 200 alone is rejected as a readiness check:** the probe verifies that the response is valid JSON-RPC 2.0 without an error object, and conforms to the `kovanica_syncStatus` schema (`catchingUp` boolean, `peerCount` integer).
+- Verifies live `syncStatus`, `blockNumber`, network identity tag (`<chain_id>-<16_hex_genesis>`), and Chain 5 mining/DAG endpoints (`kovanica_getMiningInfo`, `kovanica_getDagTips`).
+
+---
+
 ## Compatibility Limits
 
 1. **Read-Only Surface:** This SDK implements the read-only JSON-RPC query surface. It does not construct or sign state-mutating transactions, light client proofs, or submit mining blocks.
