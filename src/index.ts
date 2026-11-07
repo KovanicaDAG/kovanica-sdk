@@ -3,11 +3,17 @@
  */
 
 // Client & Transport
-export { KovanicaClient, type KovanicaClientOptions } from "./client";
+export {
+  KovanicaClient,
+  type KovanicaClientOptions,
+  isNodeSynced,
+  parseSafeOptionalQuantity,
+} from "./client";
 export {
   HttpTransport,
   type HttpTransportOptions,
   type Transport,
+  parseLosslessJson,
 } from "./transport";
 
 // Types & Schemas

@@ -10,10 +10,10 @@ Typed, lightweight TypeScript client and utilities for the **Kovanica (KVNC)** L
 ## Features
 
 - **Standard JSON-RPC 2.0 Transport:** Configurable endpoint URL, automatic request IDs, configurable timeouts, caller-controlled cancellation (`AbortSignal`), and typed error classes.
-- **Read-Only Verified Methods:** Full set of query methods verified against actual `crates/kovanica-rpc` Rust handlers at commit `2c2e54b4615eb53c61ebb9963b7606d2ccbfaa47`.
-- **Lossless Precision (Large Integers):** Kovanica balances, heights, stakes, nonces, and gas rates are represented losslessly as native JavaScript `bigint`. Never coerced into IEEE-754 `Number`.
+- **Read-Only Verified Methods:** Full set of query methods verified against actual `crates/kovanica-rpc` Rust handlers at commit [`feab9050b178ee6d25798c0976a7fa138e90f537`](https://github.com/KovanicaDAG/kovanica/commit/feab9050b178ee6d25798c0976a7fa138e90f537).
+- **Lossless Precision (Large Integers):** Kovanica balances, heights, stakes, nonces, and gas rates are represented losslessly as native JavaScript `bigint`. Never coerced into IEEE-754 `Number`. Plain JSON integers up to `u64::MAX` are preserved losslessly.
 - **PRO-21 Address Support:** Canonical 64-character `kvnc...dag` base32 addresses (256-bit Ed25519 public key + 29-bit `blake3` checksum) and chain-aware validation.
-- **Chain Registry:** Verified chain ID metadata for Mainnet (1), Testnet (2), Devnet (3), Testnet V2 (4), Hybrid PoW Testnet (5), and Local (1337).
+- **Chain Registry:** Verified chain ID metadata for Mainnet (1), Testnet (2), Devnet (3), Testnet V2 (4), Hybrid PoW Testnet (5), and Local (1337). Correct consensus mapping (Mainnet and Local use Mysticeti; only Chain 5 uses Hybrid PoW + GHOSTDAG).
 - **Hybrid PoW & DAG Queries:** First-class typed support for `kovanica_getMiningInfo` and `kovanica_getDagTips` for Chain 5 (Hybrid PoW + GHOSTDAG).
 
 ---
@@ -32,7 +32,7 @@ npm install kovanica-sdk
 ### 1. Connecting and Querying State
 
 ```typescript
-import { KovanicaClient, formatKvnc } from "kovanica-sdk";
+import { KovanicaClient, formatKvnc, isNodeSynced } from "kovanica-sdk";
 
 // Connect to a local node (Chain 5 Hybrid or Local Devnet)
 const client = new KovanicaClient("http://127.0.0.1:8545/rpc");
@@ -45,9 +45,10 @@ console.log(`Current committed height: ${height}`);
 const balanceAtoms = await client.getBalance("kvnc123...dag");
 console.log(`Balance: ${formatKvnc(balanceAtoms)} KVNC (${balanceAtoms} atoms)`);
 
-// Query node synchronization and peer health
+// Query node synchronization and peer health (L1 camelCase contract with snake_case aliases)
 const sync = await client.syncStatus();
-console.log(`Node peers: ${sync.peer_count}, Catching up: ${sync.catching_up}`);
+console.log(`Node peers: ${sync.peerCount}, Catching up: ${sync.catchingUp}`);
+console.log(`Is confirmed in-sync: ${isNodeSynced(sync)}`);
 ```
 
 ### 2. Querying Chain 5 Hybrid PoW Mining Info & DAG Tips
@@ -135,7 +136,7 @@ To prevent precision corruption:
 
 ## RPC Compatibility Matrix
 
-All methods are mapped directly to handlers in `crates/kovanica-rpc` verified at node commit [`2c2e54b4615eb53c61ebb9963b7606d2ccbfaa47`](https://github.com/KovanicaDAG/kovanica/commit/2c2e54b4615eb53c61ebb9963b7606d2ccbfaa47):
+All methods are mapped directly to handlers in `crates/kovanica-rpc` verified at node commit [`feab9050b178ee6d25798c0976a7fa138e90f537`](https://github.com/KovanicaDAG/kovanica/commit/feab9050b178ee6d25798c0976a7fa138e90f537):
 
 | JSON-RPC Method | SDK Client Method | Handler in `kovanica-rpc` | Supported Chains | Notes |
 | :--- | :--- | :--- | :--- | :--- |
@@ -147,16 +148,38 @@ All methods are mapped directly to handlers in `crates/kovanica-rpc` verified at
 | `kovanica_getCode` | `client.getCode(addr)` | `handle_get_code` | 1, 2, 3, 4, 5, 1337 | Contract bytecode hex |
 | `kovanica_getStorageAt` | `client.getStorageAt(addr, slot)` | `handle_get_storage_at` | 1, 2, 3, 4, 5, 1337 | Contract storage slot hex |
 | `kovanica_getTransactionByHash` | `client.getTransactionByHash(h)` | `handle_get_transaction_by_hash` | 1, 2, 3, 4, 5, 1337 | Returns transaction details |
-| `kovanica_getTransactionReceipt` | `client.getTransactionReceipt(h)` | `handle_get_transaction_receipt` | 1, 2, 3, 4, 5, 1337 | Status and block execution receipt |
+| `kovanica_getTransactionReceipt` | `client.getTransactionReceipt(h)` | `handle_get_transaction_receipt` | 1, 2, 3, 4, 5, 1337 | Status, block execution receipt & gasUsed |
 | `kovanica_getPendingTransactions`| `client.getPendingTransactions()` | `handle_get_pending_transactions`| 1, 2, 3, 4, 5, 1337 | Mempool pending tx hashes |
 | `kovanica_estimateFee` | `client.estimateFee()` | `handle_estimate_fee` | 1, 2, 3, 4, 5, 1337 | Gas fee rate in atoms per byte |
 | `kovanica_getValidators` | `client.getValidators()` | `handle_get_validators` | 1, 2, 3, 4, 5, 1337 | Active validator set and stakes |
 | `kovanica_getStake` | `client.getStake(addr)` | `handle_get_stake` | 1, 2, 3, 4, 5, 1337 | Bonded stake amount |
 | `kovanica_getRewards` | `client.getRewards(addr)` | `handle_get_rewards` | 1, 2, 3, 4, 5, 1337 | Cumulative earned rewards |
 | `kovanica_getLeaderSchedule` | `client.getLeaderSchedule(count)` | `handle_get_leader_schedule` | 1, 2, 3, 4, 5, 1337 | Leader rounds schedule |
-| `kovanica_syncStatus` | `client.syncStatus()` | `handle_sync_status` | 1, 2, 3, 4, 5, 1337 | Peer count and catch-up status |
+| `kovanica_syncStatus` | `client.syncStatus()` | `handle_sync_status` | 1, 2, 3, 4, 5, 1337 | camelCase wire contract with peerId & reportedTipRound |
 | `kovanica_getMiningInfo` | `client.getMiningInfo()` | `handle_get_mining_info` | 5 (Hybrid PoW) | Mining difficulty, DAA target |
 | `kovanica_getDagTips` | `client.getDagTips()` | `handle_get_dag_tips` | 5 (Hybrid PoW) | Current DAG tip block hashes |
+
+---
+
+## Node Synchronization Contract (`kovanica_syncStatus`)
+
+The L1 RPC returns `SyncStatus` with `#[serde(rename_all = "camelCase")]`:
+- `localTipRound`: `u64` (omitted if storage unread)
+- `committedHeight`: `u64` (omitted if storage unread)
+- `localHeight`: `u64` (alias for `committedHeight`)
+- `catchingUp`: `bool`
+- `catchUpTarget`: `u64` (omitted if not catching up)
+- `behindBy`: `u64` (omitted if not catching up)
+- `peerCount`: `usize` (plain integer)
+- `peers`: array of `SyncPeerStatus` (`peerId`: string, `reportedTipRound`: optional `u64`)
+- `networkTag`: `<chain_id>-<16 hex chars>`
+
+### Synchronization State Semantics
+In Kovanica L1, **`catchingUp === false` alone is insufficient** to conclude a node is in sync:
+- When a node is in the initial probing state or has zero connected peers, `catchingUp` is reported as `false`, yet the node is not in consensus sync.
+- Unknown fields (missing `localTipRound`, `committedHeight`, `peerCount`, or `catchingUp`) remain `undefined` and are **never converted to `0` or false claims**.
+- Explicit zeros (`localTipRound: 0`, `committedHeight: 0`, `peerCount: 0`, `reportedTipRound: 0`) are strictly preserved.
+- The SDK exports `isNodeSynced(status)`: returns `true` only if `catchingUp === false`, `localTipRound !== undefined`, and `peerCount > 0`. Returns `false` if `catchingUp === true`. Returns `undefined` if status is indeterminate.
 
 ---
 
@@ -164,16 +187,27 @@ All methods are mapped directly to handlers in `crates/kovanica-rpc` verified at
 
 | Chain ID | Name | Consensus | Target Block | Address Rule |
 | :---: | :--- | :--- | :---: | :--- |
-| `1` | **Mainnet** | Hybrid PoW + GHOSTDAG | 4 s | Strict PRO-21 base32 (`kvnc...dag`, 64 chars) |
+| `1` | **Mainnet** | Mysticeti | 4 s | Strict PRO-21 base32 (`kvnc...dag`, 64 chars) |
 | `2` | **Testnet** (Legacy ID) | Mysticeti | 4 s | Strict PRO-21 base32 (`kvnc...dag`, 64 chars) |
 | `3` | **Devnet** | Mysticeti | 4 s | PRO-21 base32 and legacy hex allowed |
 | `4` | **Testnet V2** (Internal) | Mysticeti | 4 s | PRO-21 base32 and legacy hex allowed |
 | `5` | **Hybrid PoW Testnet** | Hybrid PoW + GHOSTDAG | 4 s | PRO-21 base32 and legacy hex allowed |
-| `1337` | **Local Devnet** | Hybrid PoW + GHOSTDAG | 4 s | PRO-21 base32 and legacy hex allowed |
+| `1337` | **Local Devnet** | Mysticeti | 4 s | PRO-21 base32 and legacy hex allowed |
+
+> [!NOTE]
+> Per `crates/kovanica-types/src/signing.rs`, only Chain 5 (`is_hybrid(5) == true`) executes Hybrid PoW + GHOSTDAG mining. Mainnet (1) and default Local networks (1337) run Mysticeti uncertified DAG consensus.
+
+---
+
+## Compatibility Limits
+
+1. **Read-Only Surface:** This SDK implements the read-only JSON-RPC query surface. It does not construct or sign state-mutating transactions, light client proofs, or submit mining blocks.
+2. **Chain 5 Only for Mining:** `client.getMiningInfo()` and `client.getDagTips()` are exclusively supported on Chain ID 5 (Hybrid PoW testnet). On other chains, the node rejects these methods with code `-32600`.
+3. **Lossless Precision Range:** Integers on the wire up to `u64::MAX` (`18446744073709551615`) and 128-bit balances are parsed losslessly into `bigint`. Direct JavaScript `number` literals exceeding `Number.MAX_SAFE_INTEGER` will throw `TypeError` to guard against precision corruption.
 
 ---
 
 ## License Basis
 
 - **License:** MIT License (`LICENSE`).
-- **Basis:** Developed from scratch as a clean TypeScript client based on public protocol constants (`kovanica-params`) and the JSON-RPC interface specification (`kovanica-rpc`) at commit `2c2e54b4615eb53c61ebb9963b7606d2ccbfaa47`. Contains no copied code from GPL-3.0 licensed consensus internals.
+- **Basis:** Developed from scratch as a clean TypeScript client based on public protocol constants (`kovanica-params`) and the JSON-RPC interface specification (`kovanica-rpc`) verified at node commit [`feab9050b178ee6d25798c0976a7fa138e90f537`](https://github.com/KovanicaDAG/kovanica/commit/feab9050b178ee6d25798c0976a7fa138e90f537). Contains no copied code from GPL-3.0 licensed consensus internals.

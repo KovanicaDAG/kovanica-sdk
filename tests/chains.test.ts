@@ -22,7 +22,16 @@ describe("chains configuration", () => {
     expect(mainnet?.name).toBe("Mainnet");
     expect(mainnet?.ticker).toBe("KVNC");
     expect(mainnet?.decimals).toBe(9);
+    expect(mainnet?.consensus).toBe("Mysticeti");
+    expect(mainnet?.ghostdagK).toBeUndefined();
     expect(mainnet?.allowsLegacyAddress).toBe(false);
+
+    const local = getChainConfig(CHAIN_IDS.LOCAL);
+    expect(local).toBeDefined();
+    expect(local?.name).toBe("Local Devnet");
+    expect(local?.consensus).toBe("Mysticeti");
+    expect(local?.ghostdagK).toBeUndefined();
+    expect(local?.allowsLegacyAddress).toBe(true);
 
     const hybrid = getChainConfig(CHAIN_IDS.HYBRID_TESTNET);
     expect(hybrid).toBeDefined();

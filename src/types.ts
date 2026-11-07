@@ -91,6 +91,7 @@ export interface TransactionReceipt {
   transactionIndex: bigint | null;
   status: number;
   success: boolean;
+  gasUsed?: bigint;
 }
 
 export interface ValidatorInfo {
@@ -108,21 +109,61 @@ export interface LeaderSlot {
 }
 
 export interface SyncPeerStatus {
-  addr: string;
+  /** libp2p peer id (transport identity, not the validator key). */
+  peerId: string;
+  /** Last DAG tip round the peer reported, if it has answered a probe. */
+  reportedTipRound?: bigint;
+
+  // Backwards-compatible aliases:
+  /** @deprecated Snake-case alias for peerId */
+  peer_id?: string;
+  /** @deprecated Snake-case alias for reportedTipRound */
+  reported_tip_round?: bigint;
+  /** @deprecated Legacy alias */
+  addr?: string;
+  /** @deprecated Legacy alias */
   tip_round?: bigint;
-  latency_ms?: number;
-  connected_secs?: number;
 }
 
 export interface SyncStatus {
-  local_tip_round?: bigint;
-  committed_height?: bigint;
-  local_height?: bigint;
-  catching_up: boolean;
-  catch_up_target?: bigint;
-  behind_by?: bigint;
-  peer_count: number;
+  /** Local DAG tip round (`max_dag_round`); undefined if storage cannot be read. */
+  localTipRound?: bigint;
+  /** Latest committed leader height, when available. */
+  committedHeight?: bigint;
+  /** Local committed height (alias for committedHeight). */
+  localHeight?: bigint;
+  /**
+   * Whether the node is actively pulling a peer's rounds.
+   * `undefined` if unknown or unpopulated by node.
+   */
+  catchingUp?: boolean;
+  /** Highest peer-advertised tip round being chased, when catching up. */
+  catchUpTarget?: bigint;
+  /** How many rounds behind the catch-up target the local tip is. */
+  behindBy?: bigint;
+  /** Number of connected peers; undefined if not reported. */
+  peerCount?: number;
+  /** Connected peers, bounded by the node's max_peers. */
   peers: SyncPeerStatus[];
+  /** `<chain_id>-<first 16 hex chars of the genesis digest>`. */
+  networkTag?: string;
+
+  // Backwards-compatible aliases:
+  /** @deprecated Use localTipRound */
+  local_tip_round?: bigint;
+  /** @deprecated Use committedHeight */
+  committed_height?: bigint;
+  /** @deprecated Use localHeight */
+  local_height?: bigint;
+  /** @deprecated Use catchingUp */
+  catching_up?: boolean;
+  /** @deprecated Use catchUpTarget */
+  catch_up_target?: bigint;
+  /** @deprecated Use behindBy */
+  behind_by?: bigint;
+  /** @deprecated Use peerCount */
+  peer_count?: number;
+  /** @deprecated Use networkTag */
   network_tag?: string;
 }
 
