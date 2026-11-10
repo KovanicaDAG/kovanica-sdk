@@ -34,10 +34,11 @@ export const KNOWN_CHAINS: Record<number, ChainConfig> = {
     name: "Mainnet",
     ticker: "KVNC",
     decimals: 9,
-    consensus: "Mysticeti",
+    consensus: "Hybrid PoW + GHOSTDAG",
     targetBlockTimeMs: 4000,
+    ghostdagK: 5,
     allowsLegacyAddress: false,
-    description: "Kovanica Mainnet. Strict PRO-21 base32 addresses only.",
+    description: "Kovanica Mainnet (Hybrid PoW + GHOSTDAG, KovanicaHash, target 4s, K=5). Strict PRO-21 base32 addresses only.",
   },
   [CHAIN_IDS.TESTNET]: {
     chainId: CHAIN_IDS.TESTNET,

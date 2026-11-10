@@ -22,8 +22,8 @@ describe("chains configuration", () => {
     expect(mainnet?.name).toBe("Mainnet");
     expect(mainnet?.ticker).toBe("KVNC");
     expect(mainnet?.decimals).toBe(9);
-    expect(mainnet?.consensus).toBe("Mysticeti");
-    expect(mainnet?.ghostdagK).toBeUndefined();
+    expect(mainnet?.consensus).toBe("Hybrid PoW + GHOSTDAG");
+    expect(mainnet?.ghostdagK).toBe(5);
     expect(mainnet?.allowsLegacyAddress).toBe(false);
 
     const local = getChainConfig(CHAIN_IDS.LOCAL);
