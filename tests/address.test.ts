@@ -59,14 +59,14 @@ describe("PRO-21 address handling", () => {
     );
   });
 
-  it("allows legacy hex addresses on Devnet (3), Testnet V2 (4), Hybrid Testnet (5), and Local (1337)", () => {
+  it("allows legacy hex addresses on Devnet (3), Testnet V2 (4), and Local (1337)", () => {
     const hex = "0x" + "01".repeat(32);
     expect(isValidAddress(hex, CHAIN_IDS.DEVNET)).toBe(true);
     expect(isValidAddress(hex, CHAIN_IDS.TESTNET_V2)).toBe(true);
-    expect(isValidAddress(hex, CHAIN_IDS.HYBRID_TESTNET)).toBe(true);
+    expect(isValidAddress(hex, CHAIN_IDS.TESTNET)).toBe(false);
     expect(isValidAddress(hex, CHAIN_IDS.LOCAL)).toBe(true);
 
-    const parsed = parseAddressForChain(hex, CHAIN_IDS.HYBRID_TESTNET);
+    const parsed = parseAddressForChain(hex, CHAIN_IDS.DEVNET);
     expect(parsed).toEqual(new Uint8Array(32).fill(1));
   });
 });

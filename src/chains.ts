@@ -1,7 +1,6 @@
 /**
  * Chain IDs and configuration for Kovanica networks.
- * Verified against crates/kovanica-params/src/lib.rs and crates/kovanica-types/src/signing.rs
- * at Kovanica main commit feab9050b178ee6d25798c0976a7fa138e90f537.
+ * Verified against crates/kovanica-params/src/lib.rs and crates/kovanica-types/src/signing.rs.
  */
 
 export const CHAIN_IDS = {
@@ -9,7 +8,7 @@ export const CHAIN_IDS = {
   TESTNET: 2,
   DEVNET: 3,
   TESTNET_V2: 4,
-  HYBRID_TESTNET: 5,
+  HYBRID_TESTNET: 2,
   LOCAL: 1337,
 } as const;
 
@@ -24,7 +23,7 @@ export interface ChainConfig {
   targetBlockTimeMs: number;
   ghostdagK?: number;
   allowsLegacyAddress: boolean;
-  /** Suggested local / developer endpoint; no public Chain 5 endpoints are invented. */
+  /** Suggested local / developer endpoint. */
   defaultRpcUrl?: string;
   description: string;
 }
@@ -42,13 +41,16 @@ export const KNOWN_CHAINS: Record<number, ChainConfig> = {
   },
   [CHAIN_IDS.TESTNET]: {
     chainId: CHAIN_IDS.TESTNET,
-    name: "Testnet (Legacy ID)",
+    name: "Testnet",
     ticker: "KVNC",
     decimals: 9,
-    consensus: "Mysticeti",
+    consensus: "Hybrid PoW + GHOSTDAG",
     targetBlockTimeMs: 4000,
+    ghostdagK: 5,
     allowsLegacyAddress: false,
-    description: "Legacy testnet ID. Strict PRO-21 base32 addresses only.",
+    defaultRpcUrl: "http://127.0.0.1:8545/rpc",
+    description:
+      "Kovanica Testnet (Hybrid PoW + GHOSTDAG, KovanicaHash, target 4s, K=5). Strict PRO-21 base32 addresses only.",
   },
   [CHAIN_IDS.DEVNET]: {
     chainId: CHAIN_IDS.DEVNET,
@@ -69,19 +71,6 @@ export const KNOWN_CHAINS: Record<number, ChainConfig> = {
     targetBlockTimeMs: 4000,
     allowsLegacyAddress: true,
     description: "Internal testnet v2. Legacy hex addresses allowed.",
-  },
-  [CHAIN_IDS.HYBRID_TESTNET]: {
-    chainId: CHAIN_IDS.HYBRID_TESTNET,
-    name: "Hybrid PoW Testnet",
-    ticker: "KVNC",
-    decimals: 9,
-    consensus: "Hybrid PoW + GHOSTDAG",
-    targetBlockTimeMs: 4000,
-    ghostdagK: 5,
-    allowsLegacyAddress: true,
-    defaultRpcUrl: "http://127.0.0.1:8545/rpc",
-    description:
-      "Hybrid PoW + GHOSTDAG testnet (ADR 0003, KovanicaHash, target 4s, K=5). No public endpoint yet; run via local node.",
   },
   [CHAIN_IDS.LOCAL]: {
     chainId: CHAIN_IDS.LOCAL,
@@ -111,7 +100,6 @@ export function isLegacyAddressAllowed(chainId: number): boolean {
   return (
     chainId === CHAIN_IDS.DEVNET ||
     chainId === CHAIN_IDS.TESTNET_V2 ||
-    chainId === CHAIN_IDS.HYBRID_TESTNET ||
     chainId === CHAIN_IDS.LOCAL
   );
 }

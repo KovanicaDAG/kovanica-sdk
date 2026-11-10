@@ -12,7 +12,7 @@ describe("chains configuration", () => {
     expect(CHAIN_IDS.TESTNET).toBe(2);
     expect(CHAIN_IDS.DEVNET).toBe(3);
     expect(CHAIN_IDS.TESTNET_V2).toBe(4);
-    expect(CHAIN_IDS.HYBRID_TESTNET).toBe(5);
+    expect(CHAIN_IDS.HYBRID_TESTNET).toBe(2);
     expect(CHAIN_IDS.LOCAL).toBe(1337);
   });
 
@@ -33,13 +33,13 @@ describe("chains configuration", () => {
     expect(local?.ghostdagK).toBeUndefined();
     expect(local?.allowsLegacyAddress).toBe(true);
 
-    const hybrid = getChainConfig(CHAIN_IDS.HYBRID_TESTNET);
-    expect(hybrid).toBeDefined();
-    expect(hybrid?.name).toBe("Hybrid PoW Testnet");
-    expect(hybrid?.consensus).toBe("Hybrid PoW + GHOSTDAG");
-    expect(hybrid?.targetBlockTimeMs).toBe(4000);
-    expect(hybrid?.ghostdagK).toBe(5);
-    expect(hybrid?.allowsLegacyAddress).toBe(true);
+    const testnet = getChainConfig(CHAIN_IDS.TESTNET);
+    expect(testnet).toBeDefined();
+    expect(testnet?.name).toBe("Testnet");
+    expect(testnet?.consensus).toBe("Hybrid PoW + GHOSTDAG");
+    expect(testnet?.targetBlockTimeMs).toBe(4000);
+    expect(testnet?.ghostdagK).toBe(5);
+    expect(testnet?.allowsLegacyAddress).toBe(false);
   });
 
   it("accurately reports legacy address allowance", () => {
@@ -47,7 +47,6 @@ describe("chains configuration", () => {
     expect(isLegacyAddressAllowed(2)).toBe(false);
     expect(isLegacyAddressAllowed(3)).toBe(true);
     expect(isLegacyAddressAllowed(4)).toBe(true);
-    expect(isLegacyAddressAllowed(5)).toBe(true);
     expect(isLegacyAddressAllowed(1337)).toBe(true);
     expect(isLegacyAddressAllowed(999)).toBe(false);
   });

@@ -219,7 +219,6 @@ export async function assertNonzeroExecutedState(
     options?.authorAddress ||
     process.env.KOVANICA_PRODUCER_ADDRESS ||
     validators[0]?.address ||
-    "kvnc8d4z00xwk6jz6c4r4rgz5mcdwdjny9thrh3y8f36cpy2rz6emg54rufktdag" ||
     "kvnck2559l6vnpcchmtkuf2eslmdtxc6wtfm9nf9zqqructs4336nla58y78mdag";
   if (!authorAddr) {
     throw new Error(

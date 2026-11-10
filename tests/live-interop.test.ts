@@ -197,9 +197,9 @@ describe("Live L1 Node Interoperability", () => {
         expect(Number.isInteger(reportedChainId)).toBe(true);
 
         // If the live node is running on Chain 5 (Hybrid PoW testnet), verify mining methods
-        if (reportedChainId === CHAIN_IDS.HYBRID_TESTNET) {
+        if (reportedChainId === CHAIN_IDS.HYBRID_TESTNET || reportedChainId === CHAIN_IDS.TESTNET) {
           const mining = await client.getMiningInfo();
-          expect(mining.chain_id).toBe(5);
+          expect(mining.chain_id).toBe(reportedChainId);
           expect(typeof mining.mining_enabled).toBe("boolean");
           expect(typeof mining.mining_threads).toBe("number");
           expect(typeof mining.difficulty).toBe("bigint");
@@ -212,7 +212,7 @@ describe("Live L1 Node Interoperability", () => {
           expect(mining.dag_tips_count >= 1).toBe(true);
 
           const tips = await client.getDagTips();
-          expect(tips.chain_id).toBe(5);
+          expect(tips.chain_id).toBe(reportedChainId);
           expect(tips.count >= 1).toBe(true);
           expect(typeof tips.max_round).toBe("bigint");
           expect(tips.ghostdag_k).toBe(5);
