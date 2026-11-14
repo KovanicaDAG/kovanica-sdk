@@ -28,7 +28,7 @@ describe("syncStatus source-backed fixtures and regressions", () => {
           // Peer b has no reported tip round: omitted on wire
         },
       ],
-      networkTag: "4-0123456789abcdef",
+      networkTag: "2-0123456789abcdef",
     };
 
     const mockTransport: Transport = {
@@ -51,7 +51,7 @@ describe("syncStatus source-backed fixtures and regressions", () => {
     expect(status.peers[0].reportedTipRound).toBe(200n);
     expect(status.peers[1].peerId).toBe("12D3KooWpeer-b");
     expect(status.peers[1].reportedTipRound).toBeUndefined();
-    expect(status.networkTag).toBe("4-0123456789abcdef");
+    expect(status.networkTag).toBe("2-0123456789abcdef");
 
     // Backwards-compatible aliases
     expect(status.local_tip_round).toBe(120n);
@@ -63,7 +63,7 @@ describe("syncStatus source-backed fixtures and regressions", () => {
     expect(status.peer_count).toBe(2);
     expect(status.peers[0].peer_id).toBe("12D3KooWpeer-a");
     expect(status.peers[0].reported_tip_round).toBe(200n);
-    expect(status.network_tag).toBe("4-0123456789abcdef");
+    expect(status.network_tag).toBe("2-0123456789abcdef");
 
     // Catching up means definitely not in sync
     expect(isNodeSynced(status)).toBe(false);

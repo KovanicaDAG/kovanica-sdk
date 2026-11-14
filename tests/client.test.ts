@@ -126,7 +126,7 @@ describe("KovanicaClient & HttpTransport", () => {
       catchingUp: false,
       peerCount: 3,
       peers: [{ peerId: "12D3KooWpeer-a", reportedTipRound: 256 }],
-      networkTag: "5-a1b2c3d4e5f60718",
+      networkTag: "2-a1b2c3d4e5f60718",
     };
 
     const mockTransport: Transport = {
@@ -141,7 +141,7 @@ describe("KovanicaClient & HttpTransport", () => {
     expect(status.peerCount).toBe(3);
     expect(status.peers[0].peerId).toBe("12D3KooWpeer-a");
     expect(status.peers[0].reportedTipRound).toBe(256n);
-    expect(status.networkTag).toBe("5-a1b2c3d4e5f60718");
+    expect(status.networkTag).toBe("2-a1b2c3d4e5f60718");
 
     // Backwards-compatible aliases
     expect(status.local_tip_round).toBe(256n);
@@ -150,12 +150,12 @@ describe("KovanicaClient & HttpTransport", () => {
     expect(status.peer_count).toBe(3);
     expect(status.peers[0].peer_id).toBe("12D3KooWpeer-a");
     expect(status.peers[0].reported_tip_round).toBe(256n);
-    expect(status.network_tag).toBe("5-a1b2c3d4e5f60718");
+    expect(status.network_tag).toBe("2-a1b2c3d4e5f60718");
   });
 
-  it("handles Chain 5 mining info and DAG tips", async () => {
+  it("handles Hybrid PoW (Chain 2) mining info and DAG tips", async () => {
     const mockMiningInfo = {
-      chain_id: 5,
+      chain_id: 2,
       mining_enabled: true,
       mining_threads: 4,
       target_bits: "0x1f00ffff",
@@ -168,7 +168,7 @@ describe("KovanicaClient & HttpTransport", () => {
     };
 
     const mockDagTips = {
-      chain_id: 5,
+      chain_id: 2,
       tips: ["0x" + "11".repeat(32), "0x" + "22".repeat(32)],
       count: 2,
       max_round: "0x20",
@@ -184,13 +184,13 @@ describe("KovanicaClient & HttpTransport", () => {
     const client = new KovanicaClient({ transport: mockTransport });
 
     const mining = await client.getMiningInfo();
-    expect(mining.chain_id).toBe(5);
+    expect(mining.chain_id).toBe(2);
     expect(mining.mining_enabled).toBe(true);
     expect(mining.difficulty).toBe(1000n);
     expect(mining.network_hashrate_estimate).toBe(250n);
 
     const tips = await client.getDagTips();
-    expect(tips.chain_id).toBe(5);
+    expect(tips.chain_id).toBe(2);
     expect(tips.tips).toHaveLength(2);
     expect(tips.max_round).toBe(32n);
   });

@@ -158,7 +158,7 @@ export interface ExecutedStateResult {
  * - Active peers connected (peerCount >= 1) with lossless peer status types
  * - Validator set populated
  * - Author account has observable executed rewards (balance strictly exceeds genesis baseline)
- * - Chain 5 PoW mining and DAG tip shapes consistent
+ * - Hybrid PoW + GHOSTDAG (Chains 1 & 2) PoW mining and DAG tip shapes consistent
  *
  * Used by live interoperability tests against active nodes, and verified offline
  * against synthetic fixtures to prove that unrewarded/unexecuted states cannot satisfy it.
@@ -230,8 +230,9 @@ export async function assertNonzeroExecutedState(
   expect(typeof balance).toBe("bigint");
   expect(balance > 0n).toBe(true);
 
-  // On Chain 5 with 2 genesis validators (450,000 KVNC liquid baseline = 450_000_000_000_000 atoms),
-  // each mined block awards 2.5 KVNC (2_500_000_000 atoms) to the block author.
+  // On Hybrid PoW + GHOSTDAG (Chains 1 & 2), the NoStake82M emission policy has 0 genesis validator allocation,
+  // while custom funded genesis fixtures (e.g., 2 validators with 450,000 KVNC = 450_000_000_000_000 atoms baseline)
+  // can configure `options?.genesisBaselineBalance`. Each mined block awards PoW rewards to the block author.
   // Execution evidence requires author balance to strictly exceed the genesis liquid baseline:
   const baseline = options?.genesisBaselineBalance ?? 450_000_000_000_000n;
   if (validators.length === 2) {
@@ -246,7 +247,7 @@ export async function assertNonzeroExecutedState(
   expect(typeof stake).toBe("bigint");
   expect(stake >= 0n).toBe(true);
 
-  // 3. Consistent getMiningInfo and getDagTips shapes (Chain 5)
+  // 3. Consistent getMiningInfo and getDagTips shapes (Hybrid PoW + GHOSTDAG: Chains 1 & 2)
   const expectedChainId = options?.expectedChainId ?? CHAIN_IDS.HYBRID_TESTNET;
   const mining = await client.getMiningInfo();
   expect(mining.chain_id).toBe(expectedChainId);

@@ -189,15 +189,19 @@ describe("Live L1 Node Interoperability", () => {
       const pending = await client.getPendingTransactions();
       expect(Array.isArray(pending)).toBe(true);
 
-      // 5. Network identity & Chain 5 mining/DAG queries
+      // 5. Network identity & Hybrid PoW + GHOSTDAG (Chains 1 & 2) mining/DAG queries
       if (status.networkTag) {
         expect(typeof status.networkTag).toBe("string");
         const parts = status.networkTag.split("-");
         const reportedChainId = Number(parts[0]);
         expect(Number.isInteger(reportedChainId)).toBe(true);
 
-        // If the live node is running on Chain 5 (Hybrid PoW testnet), verify mining methods
-        if (reportedChainId === CHAIN_IDS.HYBRID_TESTNET || reportedChainId === CHAIN_IDS.TESTNET) {
+        // If the live node is running on Hybrid PoW Chains 1 (Mainnet) or 2 (Testnet), verify mining methods
+        if (
+          reportedChainId === CHAIN_IDS.MAINNET ||
+          reportedChainId === CHAIN_IDS.TESTNET ||
+          reportedChainId === CHAIN_IDS.HYBRID_TESTNET
+        ) {
           const mining = await client.getMiningInfo();
           expect(mining.chain_id).toBe(reportedChainId);
           expect(typeof mining.mining_enabled).toBe("boolean");

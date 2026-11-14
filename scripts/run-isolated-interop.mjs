@@ -16,6 +16,33 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { blake3 } from '@noble/hashes/blake3.js';
+
+const BASE32_ALPHABET = 'qpzry9x8gf2tvdw0s3jn54khce6mua7l';
+
+function encodeAddress(publicKey) {
+  const hash = blake3(publicKey);
+  const u32 = ((hash[0] << 24) | (hash[1] << 16) | (hash[2] << 8) | hash[3]) >>> 0;
+  const check = u32 >>> 3;
+  const chunks = [];
+  let acc = 0;
+  let bits = 0;
+  for (let i = 0; i < publicKey.length; i++) {
+    acc = (acc << 8) | publicKey[i];
+    bits += 8;
+    while (bits >= 5) {
+      bits -= 5;
+      chunks.push((acc >> bits) & 0x1f);
+    }
+  }
+  acc = (acc << 29) | check;
+  bits += 29;
+  while (bits >= 5) {
+    bits -= 5;
+    chunks.push((acc >> bits) & 0x1f);
+  }
+  return `kvnc${chunks.map((c) => BASE32_ALPHABET[c]).join('')}dag`;
+}
 
 const NODE_BINARY =
   process.env.KOVANICA_NODE_BINARY ||
@@ -53,6 +80,8 @@ function generateValidatorKeys() {
 }
 
 const { producerKey, observerKey } = generateValidatorKeys();
+const producerAddress = encodeAddress(producerKey.pub);
+const observerAddress = encodeAddress(observerKey.pub);
 
 const tempBase = fs.mkdtempSync(path.join(os.tmpdir(), 'kovanica-interop-'));
 const obsDir = path.join(tempBase, 'observer');
@@ -61,16 +90,17 @@ fs.mkdirSync(obsDir, { recursive: true });
 fs.mkdirSync(prodDir, { recursive: true });
 
 const genesisToml = `# generated for SDK live interop
-chain_id = 5
+chain_id = 2
+emission_policy = "no-stake-82m"
 
 [[validator]]
-address = "${producerKey.pub.toString('hex')}"
-stake = 50000000000000
+address = "${producerAddress}"
+stake = 0
 public_key = "${producerKey.pub.toString('hex')}"
 
 [[validator]]
-address = "${observerKey.pub.toString('hex')}"
-stake = 50000000000000
+address = "${observerAddress}"
+stake = 0
 public_key = "${observerKey.pub.toString('hex')}"
 `;
 
@@ -82,10 +112,10 @@ const prodKeyPath = path.join(prodDir, 'validator.key');
 fs.writeFileSync(obsKeyPath, observerKey.priv.toString('hex'), { mode: 0o600 });
 fs.writeFileSync(prodKeyPath, producerKey.priv.toString('hex'), { mode: 0o600 });
 
-console.log('[Topology] Setting up isolated Hybrid PoW testnet (Chain 5)...');
+console.log('[Topology] Setting up isolated Hybrid PoW testnet (Chain 2)...');
 console.log(`[Topology] Node binary: ${NODE_BINARY}`);
-console.log(`[Topology] Producer address: 0x${producerKey.pub.toString('hex')}`);
-console.log(`[Topology] Observer address: 0x${observerKey.pub.toString('hex')}`);
+console.log(`[Topology] Producer address: ${producerAddress}`);
+console.log(`[Topology] Observer address: ${observerAddress}`);
 console.log(`[Topology] Observer RPC: http://127.0.0.1:${OBSERVER_RPC_PORT}/rpc`);
 
 let obsProcess = null;
@@ -156,7 +186,7 @@ async function run() {
       KOVANICA_LISTEN_ADDR: `127.0.0.1:${OBSERVER_P2P_PORT}`,
       KOVANICA_MAX_PEERS: '8',
       KOVANICA_RUN_VALIDATOR: 'false',
-      KOVANICA_CHAIN_ID: '5',
+      KOVANICA_CHAIN_ID: '2',
       KOVANICA_MINING_ENABLED: 'false',
       KOVANICA_MINING_THREADS: '1',
       KOVANICA_MINING_AUTHOR: '1',
@@ -190,7 +220,7 @@ async function run() {
       KOVANICA_BOOTNODES: `127.0.0.1:${OBSERVER_P2P_PORT}`,
       KOVANICA_MAX_PEERS: '8',
       KOVANICA_RUN_VALIDATOR: 'true',
-      KOVANICA_CHAIN_ID: '5',
+      KOVANICA_CHAIN_ID: '2',
       KOVANICA_MINING_ENABLED: 'true',
       KOVANICA_MINING_THREADS: '1',
       KOVANICA_MINING_AUTHOR: '0',
@@ -254,7 +284,7 @@ async function run() {
       ...process.env,
       KOVANICA_REQUIRE_LIVE: '1',
       KOVANICA_RPC_URL: `http://127.0.0.1:${OBSERVER_RPC_PORT}/rpc`,
-      KOVANICA_PRODUCER_ADDRESS: `0x${producerKey.pub.toString('hex')}`,
+      KOVANICA_PRODUCER_ADDRESS: producerAddress,
     },
     stdio: 'inherit',
   });

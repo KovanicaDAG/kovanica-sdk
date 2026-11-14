@@ -552,7 +552,7 @@ describe("Transport Contracts & Precision Verification", () => {
             jsonrpc: "2.0",
             id: body.id,
             result: {
-              chain_id: 5,
+              chain_id: 2,
               mining_enabled: true,
               mining_threads: 4,
               target_bits: "0x1f00ffff",
@@ -579,7 +579,7 @@ describe("Transport Contracts & Precision Verification", () => {
             jsonrpc: "2.0",
             id: body.id,
             result: {
-              chain_id: 5,
+              chain_id: 2,
               tips: ["0x" + "11".repeat(32)],
               count: 1,
               max_round: u64MaxStr,
@@ -1078,7 +1078,8 @@ describe("Transport Contracts & Precision Verification", () => {
       block: null,
     };
 
-    // SYNTHETIC FIXTURE B: Nonzero height (5) but author balance is at unrewarded genesis liquid baseline (450,000 KVNC = 450_000_000_000_000 atoms).
+    // SYNTHETIC FIXTURE B: Nonzero height (5) on Hybrid PoW + GHOSTDAG (Chain 2; NoStake82M has 0 genesis validator allocation,
+    // while this synthetic 2-validator funded genesis fixture uses a custom 450,000 KVNC = 450_000_000_000_000 atoms baseline).
     // Execution evidence is absent because no block rewards have been credited.
     // Provenance: Synthetic fixture for offline assertion logic testing.
     const SYNTHETIC_FIXTURE_UNREWARDED_NONZERO_HEIGHT = {

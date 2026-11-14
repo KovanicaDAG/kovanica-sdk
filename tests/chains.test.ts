@@ -10,10 +10,12 @@ describe("chains configuration", () => {
   it("defines standard Kovanica chain IDs", () => {
     expect(CHAIN_IDS.MAINNET).toBe(1);
     expect(CHAIN_IDS.TESTNET).toBe(2);
-    expect(CHAIN_IDS.DEVNET).toBe(3);
-    expect(CHAIN_IDS.TESTNET_V2).toBe(4);
     expect(CHAIN_IDS.HYBRID_TESTNET).toBe(2);
+    expect(CHAIN_IDS.DEVNET).toBe(3);
     expect(CHAIN_IDS.LOCAL).toBe(1337);
+    expect("TESTNET_V2" in CHAIN_IDS).toBe(false);
+    expect(KNOWN_CHAINS[4]).toBeUndefined();
+    expect(getChainConfig(4)).toBeUndefined();
   });
 
   it("retrieves chain config by chain ID", () => {
@@ -46,7 +48,8 @@ describe("chains configuration", () => {
     expect(isLegacyAddressAllowed(1)).toBe(false);
     expect(isLegacyAddressAllowed(2)).toBe(false);
     expect(isLegacyAddressAllowed(3)).toBe(true);
-    expect(isLegacyAddressAllowed(4)).toBe(true);
+    expect(isLegacyAddressAllowed(4)).toBe(false);
+    expect(isLegacyAddressAllowed(5)).toBe(false);
     expect(isLegacyAddressAllowed(1337)).toBe(true);
     expect(isLegacyAddressAllowed(999)).toBe(false);
   });
