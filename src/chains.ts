@@ -6,9 +6,8 @@
 export const CHAIN_IDS = {
   MAINNET: 1,
   TESTNET: 2,
-  DEVNET: 3,
-  TESTNET_V2: 4,
   HYBRID_TESTNET: 2,
+  DEVNET: 3,
   LOCAL: 1337,
 } as const;
 
@@ -63,16 +62,6 @@ export const KNOWN_CHAINS: Record<number, ChainConfig> = {
     allowsLegacyAddress: true,
     description: "Devnet environment. Legacy hex addresses allowed.",
   },
-  [CHAIN_IDS.TESTNET_V2]: {
-    chainId: CHAIN_IDS.TESTNET_V2,
-    name: "Testnet V2 (Internal)",
-    ticker: "KVNC",
-    decimals: 9,
-    consensus: "Mysticeti",
-    targetBlockTimeMs: 4000,
-    allowsLegacyAddress: true,
-    description: "Internal testnet v2. Legacy hex addresses allowed.",
-  },
   [CHAIN_IDS.LOCAL]: {
     chainId: CHAIN_IDS.LOCAL,
     name: "Local Devnet",
@@ -100,7 +89,6 @@ export function getChainConfig(chainId: number): ChainConfig | undefined {
 export function isLegacyAddressAllowed(chainId: number): boolean {
   return (
     chainId === CHAIN_IDS.DEVNET ||
-    chainId === CHAIN_IDS.TESTNET_V2 ||
     chainId === CHAIN_IDS.LOCAL
   );
 }

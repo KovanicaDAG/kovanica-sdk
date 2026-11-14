@@ -319,7 +319,7 @@ export class KovanicaClient {
   }
 
   // ==========================================================================
-  // Node Diagnostics & Hybrid PoW / Chain 5 Methods
+  // Node Diagnostics & Hybrid PoW + GHOSTDAG (Chains 1 & 2) Methods
   // ==========================================================================
 
   /**
@@ -440,7 +440,7 @@ export class KovanicaClient {
   }
 
   /**
-   * Returns PoW mining metrics, difficulty, and DAA targets (Hybrid PoW / Chain 5).
+   * Returns PoW mining metrics, difficulty, and DAA targets (Hybrid PoW + GHOSTDAG: Mainnet Chain 1 and Testnet Chain 2).
    * RPC: `kovanica_getMiningInfo`
    */
   async getMiningInfo(options?: RequestOptions): Promise<MiningInfo> {
@@ -460,7 +460,7 @@ export class KovanicaClient {
   }
 
   /**
-   * Returns current active DAG tip block hashes (Hybrid PoW / Chain 5).
+   * Returns current active DAG tip block hashes (Hybrid PoW + GHOSTDAG: Mainnet Chain 1 and Testnet Chain 2).
    * RPC: `kovanica_getDagTips`
    */
   async getDagTips(options?: RequestOptions): Promise<DagTips> {

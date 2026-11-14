@@ -142,8 +142,8 @@ export function decodeAddress(address: string): Uint8Array {
 
 /**
  * Validates whether an address string is valid for a given chain ID.
- * Strict PRO-21 base32 on Mainnet (1) and Testnet (2).
- * Legacy hex formats accepted on Devnet (3), Testnet V2 (4), Hybrid Testnet (5), and Local (1337).
+ * Strict PRO-21 base32 on Mainnet (1) and Testnet (2); legacy hex formats are strictly rejected on Mainnet (1) and Testnet (2).
+ * Legacy hex formats are accepted only on Devnet (3) and Local (1337).
  */
 export function isValidAddress(address: string, chainId: number): boolean {
   try {
@@ -226,8 +226,8 @@ export function parseLegacyAddress(rawAddress: string): Uint8Array {
     return payload;
   }
 
-  // Bare hex or 0x-prefixed hex (32 bytes)
-  const hex = trimmed.startsWith("0x") || trimmed.startsWith("0X") ? trimmed.slice(2) : trimmed;
+  // Bare hex or 0x-prefixed hex (32 bytes; prefix is strictly lowercase "0x" per kovanica-types)
+  const hex = trimmed.startsWith("0x") ? trimmed.slice(2) : trimmed;
   if (!/^[0-9a-fA-F]+$/.test(hex)) {
     throw new Error("Hex address must be valid hexadecimal");
   }
